@@ -3,7 +3,6 @@
 import { resolve, join, relative } from "path";
 import { existsSync, statSync, readdirSync } from "fs";
 
-// Types
 type LinkCheckResult = {
   file: string;
   link: string;
@@ -12,14 +11,11 @@ type LinkCheckResult = {
   error?: string;
 };
 
-// Constants
-const URL_REGEX = /\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
-const RELATIVE_LINK_REGEX = /\[.*?\]\((?!https?:\/\/)([^\s)]+)\)/g;
 const FILE_EXTENSIONS = [".md", ".markdown"];
+const CONCURRENCY_LIMIT = 10;
+const LINK_BATCH_SIZE = 5;
 
-// Main function
-async function main() {
-  // Get the directory path from command line arguments
+if (import.meta.main) {
   const args = Bun.argv.slice(2);
   if (args.length === 0) {
     console.error("Please provide a directory path to scan");
@@ -44,62 +40,103 @@ async function main() {
   const markdownFiles = findMarkdownFiles(directoryPath);
   console.log(`Found ${markdownFiles.length} markdown files`);
 
-  // Process each file and check for broken links
+  // Process files in batches
+  const results: LinkCheckResult[] = [];
+  const allFiles = [...markdownFiles];
+
+  while (allFiles.length > 0) {
+    const batch = allFiles.splice(0, CONCURRENCY_LIMIT);
+
+    const batchResults = await Promise.all(
+      batch.map((filePath) => processFile(filePath, directoryPath)),
+    );
+
+    results.push(...batchResults.flat());
+  }
+
+  printResults(results);
+}
+
+async function processFile(
+  filePath: string,
+  directoryPath: string,
+): Promise<LinkCheckResult[]> {
+  const relativeFilePath = relative(directoryPath, filePath);
+  console.log(`Processing: ${relativeFilePath}`);
+
+  const results: LinkCheckResult[] = [];
+  const fileContent = await Bun.file(filePath).text();
+
+  const urlLinks = extractURLs(fileContent);
+
+  const urlResults = await processUrlsInBatches(urlLinks, relativeFilePath);
+  results.push(...urlResults);
+
+  const relativeLinks = extractRelativeLinks(fileContent);
+  for (const link of relativeLinks) {
+    const baseDir = filePath.substring(0, filePath.lastIndexOf("/"));
+    const targetPath = resolve(baseDir, link);
+
+    results.push({
+      file: relativeFilePath,
+      link,
+      status: existsSync(targetPath) ? "ok" : "broken",
+    });
+  }
+
+  return results;
+}
+
+async function processUrlsInBatches(
+  urls: string[],
+  relativeFilePath: string,
+): Promise<LinkCheckResult[]> {
   const results: LinkCheckResult[] = [];
 
-  for (const filePath of markdownFiles) {
-    const relativeFilePath = relative(directoryPath, filePath);
-    console.log(`Processing: ${relativeFilePath}`);
+  for (let i = 0; i < urls.length; i += LINK_BATCH_SIZE) {
+    const batch = urls.slice(i, i + LINK_BATCH_SIZE);
 
-    const fileContent = await Bun.file(filePath).text();
-    const links = extractLinks(fileContent);
-
-    // Check URL links
-    const urlLinks = extractURLs(fileContent);
-    for (const url of urlLinks) {
-      try {
-        const result = await checkURL(url);
-        // Check for broken GitHub links that return 200 OK but content indicates a 404
-        const isBroken = !result.ok || result.brokenGitHubLink;
-
-        results.push({
+    const batchPromises = batch.map(async (url) => {
+      if (isLocalhostURL(url)) {
+        return {
           file: relativeFilePath,
           link: url,
-          status: isBroken ? "broken" : "ok",
+          status: "ok" as const,
+          statusCode: 0,
+          error: "Skipped localhost URL",
+        };
+      }
+
+      try {
+        const result = await checkURL(url);
+        const isBroken = !result.ok || result.brokenGitHubLink;
+
+        return {
+          file: relativeFilePath,
+          link: url,
+          status: isBroken ? ("broken" as const) : ("ok" as const),
           statusCode: result.status,
           error: result.brokenGitHubLink
             ? "GitHub 404 (page shows not found)"
             : undefined,
-        });
+        };
       } catch (error) {
-        results.push({
+        return {
           file: relativeFilePath,
           link: url,
-          status: "broken",
+          status: "broken" as const,
           error: error instanceof Error ? error.message : String(error),
-        });
+        };
       }
-    }
+    });
 
-    // Check relative links
-    const relativeLinks = extractRelativeLinks(fileContent);
-    for (const link of relativeLinks) {
-      const baseDir = filePath.substring(0, filePath.lastIndexOf("/"));
-      const targetPath = resolve(baseDir, link);
-
-      results.push({
-        file: relativeFilePath,
-        link,
-        status: existsSync(targetPath) ? "ok" : "broken",
-      });
-    }
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
   }
 
-  // Print results
-  printResults(results);
+  return results;
 }
 
-// Helper functions
 function findMarkdownFiles(dirPath: string): string[] {
   const files: string[] = [];
 
@@ -124,18 +161,30 @@ function findMarkdownFiles(dirPath: string): string[] {
   return files;
 }
 
-function extractLinks(content: string): string[] {
-  const urlLinks = extractURLs(content);
-  const relativeLinks = extractRelativeLinks(content);
-  return [...urlLinks, ...relativeLinks];
+function isLocalhostURL(url: string): boolean {
+  return (
+    url.includes("localhost") ||
+    url.includes("127.0.0.1") ||
+    url.match(/https?:\/\/[^\/]+:\d+/) !== null
+  );
 }
 
 function extractURLs(content: string): string[] {
   const urls: string[] = [];
+
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
   let match;
 
-  while ((match = URL_REGEX.exec(content)) !== null) {
-    urls.push(match[1]);
+  while ((match = linkRegex.exec(content)) !== null) {
+    const linkText = match[1];
+    const linkUrl = match[2].trim();
+
+    if (linkUrl.startsWith("http")) {
+      const fixedUrl = fixParenthesesInUrl(linkUrl);
+      if (fixedUrl) {
+        urls.push(fixedUrl);
+      }
+    }
   }
 
   return urls;
@@ -143,17 +192,133 @@ function extractURLs(content: string): string[] {
 
 function extractRelativeLinks(content: string): string[] {
   const links: string[] = [];
+
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
   let match;
 
-  while ((match = RELATIVE_LINK_REGEX.exec(content)) !== null) {
-    // Remove any hash fragments or query parameters
-    const link = match[1].split("#")[0].split("?")[0];
-    if (link) {
-      links.push(link);
+  while ((match = linkRegex.exec(content)) !== null) {
+    const linkText = match[1];
+    const linkUrl = match[2].trim();
+
+    // Only include relative links that don't start with http/https or /
+    if (!linkUrl.startsWith("http") && !linkUrl.startsWith("/")) {
+      // Handle potential parentheses in the URL
+      const fixedUrl = fixParenthesesInUrl(linkUrl);
+      if (fixedUrl) {
+        // Remove hash fragments and query parameters
+        const cleanLink = fixedUrl.split("#")[0].split("?")[0];
+
+        // Skip code snippets, arguments, etc.
+        if (isLikelyAFilePath(cleanLink)) {
+          links.push(cleanLink);
+        }
+      }
     }
   }
 
   return links;
+}
+
+function fixParenthesesInUrl(url: string): string | null {
+  if (!url.includes("(") && !url.includes(")")) {
+    return url;
+  }
+
+  let openCount = 0;
+  let closeCount = 0;
+
+  for (const char of url) {
+    if (char === "(") openCount++;
+    if (char === ")") closeCount++;
+  }
+
+  if (openCount === closeCount) {
+    return url;
+  }
+
+  if (url.includes("github.com") && url.includes("/blob/")) {
+    const githubMatch = url.match(
+      /^(https?:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\/[^#)]+)(?:#L\d+(?:-L\d+)?)?(.*)?$/,
+    );
+    if (githubMatch) {
+      return githubMatch[1] + (githubMatch[2] || "");
+    }
+  }
+
+  if (url.includes("wikipedia.org")) {
+    const wikiMatch = url.match(
+      /^(https?:\/\/[^/]+\.wikipedia\.org\/wiki\/[^)]+)$/,
+    );
+    if (wikiMatch) {
+      return wikiMatch[1];
+    }
+  }
+
+  return url;
+}
+
+function isLikelyAFilePath(str: string): boolean {
+  const commonFileExtensions = [
+    ".md",
+    ".markdown",
+    ".txt",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".html",
+    ".css",
+    ".json",
+    ".yml",
+    ".yaml",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".pdf",
+    ".doc",
+    ".docx",
+  ];
+
+  if (commonFileExtensions.some((ext) => str.endsWith(ext))) {
+    return true;
+  }
+
+  // Check if it looks like a path (contains / or \ but not too many spaces)
+  if ((str.includes("/") || str.includes("\\")) && str.split(" ").length <= 2) {
+    return true;
+  }
+
+  // Skip if it looks like a code snippet or command args
+  if (
+    str.includes(" ") &&
+    (str.includes(",") ||
+      str.includes(":") ||
+      str.includes("{") ||
+      str.includes("}") ||
+      str.includes("`") ||
+      str.match(/^\d+$/)) // Just a number
+  ) {
+    return false;
+  }
+
+  // Skip typical code symbols
+  if (
+    str === "=" ||
+    str === "->" ||
+    str === "=>" ||
+    str.match(/^\d+$/) ||
+    str === "{" ||
+    str === "}" ||
+    str === "()" ||
+    str === "[]"
+  ) {
+    return false;
+  }
+
+  // Default to treating it as a path if nothing else matched
+  return true;
 }
 
 async function checkURL(
@@ -217,15 +382,18 @@ async function checkURL(
 function printResults(results: LinkCheckResult[]): void {
   // Count broken links
   const brokenLinks = results.filter((r) => r.status === "broken");
+  const skippedLinks = results.filter(
+    (r) => r.error === "Skipped localhost URL",
+  );
 
   console.log("\n====== RESULTS ======");
   console.log(`Total links checked: ${results.length}`);
   console.log(`Broken links found: ${brokenLinks.length}`);
+  console.log(`Localhost links skipped: ${skippedLinks.length}`);
 
   if (brokenLinks.length > 0) {
     console.log("\nBroken Links:");
 
-    // Group by file
     const byFile: Record<string, LinkCheckResult[]> = {};
 
     for (const result of brokenLinks) {
@@ -235,7 +403,6 @@ function printResults(results: LinkCheckResult[]): void {
       byFile[result.file].push(result);
     }
 
-    // Print broken links grouped by file
     for (const [file, links] of Object.entries(byFile)) {
       console.log(`\nFile: ${file}`);
 
@@ -253,9 +420,3 @@ function printResults(results: LinkCheckResult[]): void {
 
   console.log("\nDone!");
 }
-
-// Run the main function
-main().catch((error) => {
-  console.error("Error:", error);
-  process.exit(1);
-});
