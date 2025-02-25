@@ -59,11 +59,17 @@ async function main() {
     for (const url of urlLinks) {
       try {
         const result = await checkURL(url);
+        // Check for broken GitHub links that return 200 OK but content indicates a 404
+        const isBroken = !result.ok || result.brokenGitHubLink;
+
         results.push({
           file: relativeFilePath,
           link: url,
-          status: result.ok ? "ok" : "broken",
+          status: isBroken ? "broken" : "ok",
           statusCode: result.status,
+          error: result.brokenGitHubLink
+            ? "GitHub 404 (page shows not found)"
+            : undefined,
         });
       } catch (error) {
         results.push({
@@ -150,8 +156,45 @@ function extractRelativeLinks(content: string): string[] {
   return links;
 }
 
-async function checkURL(url: string): Promise<Response> {
+async function checkURL(
+  url: string,
+): Promise<Response & { brokenGitHubLink?: boolean }> {
+  // First, check if this is a GitHub link
+  const isGitHubLink =
+    url.includes("github.com") &&
+    (url.includes("/blob/") || url.includes("/tree/"));
+
   try {
+    // For GitHub links, we need the content to check for "404" indicators
+    if (isGitHubLink) {
+      const response = await fetch(url, {
+        method: "GET",
+        redirect: "follow",
+      });
+
+      // If it's a GitHub link, check the response text for indicators of missing content
+      if (response.ok) {
+        const text = await response.text();
+
+        // GitHub shows specific text when a file doesn't exist or path is invalid
+        const isNotFound =
+          text.includes("404: Not Found") ||
+          text.includes("This file does not appear to exist") ||
+          text.includes("Page not found");
+
+        // Add a custom property to the response
+        const enhancedResponse = response as Response & {
+          brokenGitHubLink?: boolean;
+        };
+        enhancedResponse.brokenGitHubLink = isNotFound;
+
+        return enhancedResponse;
+      }
+
+      return response;
+    }
+
+    // Non-GitHub links - try HEAD first
     const response = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
