@@ -1,12 +1,12 @@
 import { test, expect, describe } from "bun:test";
 
 // Import functions from the main file, making them testable
-import { 
-  extractURLs, 
+import {
+  extractURLs,
   extractRelativeLinks,
   fixParenthesesInUrl,
-  isLikelyAFilePath
-} from "./index.ts";
+  isLikelyAFilePath,
+} from "../index.ts";
 
 describe("Link extraction tests", () => {
   test("should extract links with closing parentheses in the URL", () => {
@@ -15,39 +15,39 @@ describe("Link extraction tests", () => {
 See [Wiki article](https://en.wikipedia.org/wiki/C_(programming_language)) for C language info.
 Check [Math concept](https://en.wikipedia.org/wiki/Set_(mathematics)) for details.
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://en.wikipedia.org/wiki/C_(programming_language)",
-      "https://en.wikipedia.org/wiki/Set_(mathematics)"
+      "https://en.wikipedia.org/wiki/Set_(mathematics)",
     ]);
   });
-  
+
   test("should properly extract links with trailing punctuation", () => {
     const markdown = `
 # Links with punctuation
 See [this resource](https://example.com/path/to/file.html), which has info.
 Check [this link](https://example.com/search?q=test).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://example.com/path/to/file.html",
-      "https://example.com/search?q=test"
+      "https://example.com/search?q=test",
     ]);
   });
-  
+
   test("should handle nested parentheses in URLs", () => {
     const markdown = `
 # Nested parentheses
 See [example](https://example.com/path(nested)/file.html) for an example.
 Check [math article](https://en.wikipedia.org/wiki/Function_(mathematics_(advanced))) for details.
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://example.com/path(nested)/file.html",
-      "https://en.wikipedia.org/wiki/Function_(mathematics_(advanced)" // Note: This is expected to miss the final closing paren due to regex complexity
+      "https://en.wikipedia.org/wiki/Function_(mathematics_(advanced)", // Note: This is expected to miss the final closing paren due to regex complexity
     ]);
   });
   test("should extract regular http/https URLs", () => {
@@ -55,7 +55,7 @@ Check [math article](https://en.wikipedia.org/wiki/Function_(mathematics_(advanc
 # Sample Document
 This is a [regular link](https://example.com) and another [link](https://test.org/page).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual(["https://example.com", "https://test.org/page"]);
   });
@@ -63,16 +63,16 @@ This is a [regular link](https://example.com) and another [link](https://test.or
   test("should handle GitHub URLs correctly", () => {
     const markdown = `
 # GitHub Links
-Check out this [GitHub repo](https://github.com/user/repo) or this 
+Check out this [GitHub repo](https://github.com/user/repo) or this
 [specific file](https://github.com/user/repo/blob/main/README.md).
 Also check [file with line numbers](https://github.com/user/repo/blob/main/code.js#L10-L20).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://github.com/user/repo",
       "https://github.com/user/repo/blob/main/README.md",
-      "https://github.com/user/repo/blob/main/code.js#L10-L20"
+      "https://github.com/user/repo/blob/main/code.js#L10-L20",
     ]);
   });
 
@@ -83,12 +83,12 @@ Learn about [JavaScript](https://en.wikipedia.org/wiki/JavaScript) or
 [TypeScript](https://en.wikipedia.org/wiki/TypeScript).
 Also see [Complex Topic](https://en.wikipedia.org/wiki/Complex_(psychology)).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://en.wikipedia.org/wiki/JavaScript",
       "https://en.wikipedia.org/wiki/TypeScript",
-      "https://en.wikipedia.org/wiki/Complex_(psychology)"
+      "https://en.wikipedia.org/wiki/Complex_(psychology)",
     ]);
   });
 
@@ -99,12 +99,12 @@ Check [RFC-2119](https://tools.ietf.org/html/rfc2119).
 Read about [Something (important)](https://example.com/article_(important)).
 See [This Entry](https://en.wikipedia.org/wiki/Bracket_(mathematics)).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://tools.ietf.org/html/rfc2119",
       "https://example.com/article_(important)",
-      "https://en.wikipedia.org/wiki/Bracket_(mathematics)"
+      "https://en.wikipedia.org/wiki/Bracket_(mathematics)",
     ]);
   });
 
@@ -113,12 +113,12 @@ See [This Entry](https://en.wikipedia.org/wiki/Bracket_(mathematics)).
 # Multiple links
 See [Link1](https://example.com) and [Link2](https://test.org) and [Link3](https://github.com).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://example.com",
       "https://test.org",
-      "https://github.com"
+      "https://github.com",
     ]);
   });
 
@@ -128,11 +128,11 @@ See [Link1](https://example.com) and [Link2](https://test.org) and [Link3](https
 Check [Search Results](https://example.com/search?q=test&sort=asc#results).
 See [API Docs](https://api.example.com/v1/docs#authentication).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://example.com/search?q=test&sort=asc#results",
-      "https://api.example.com/v1/docs#authentication"
+      "https://api.example.com/v1/docs#authentication",
     ]);
   });
 
@@ -142,7 +142,7 @@ See [API Docs](https://api.example.com/v1/docs#authentication).
 Check [Local file](./README.md) or [Another doc](docs/guide.md).
 Email me at [contact](mailto:user@example.com).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([]); // Should not extract any URLs
   });
@@ -153,11 +153,11 @@ Email me at [contact](mailto:user@example.com).
 See [Link with spaces](https://example.com/path%20with%20spaces).
 Check [Special chars](https://example.com/?name=%22quoted%22).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://example.com/path%20with%20spaces",
-      "https://example.com/?name=%22quoted%22"
+      "https://example.com/?name=%22quoted%22",
     ]);
   });
 
@@ -168,12 +168,12 @@ Read about [Lisp (programming language)](https://en.wikipedia.org/wiki/Lisp_(pro
 Check [Bracket (mathematics)](https://en.wikipedia.org/wiki/Bracket_(mathematics)).
 Learn about [Named_groups (regex)](https://en.wikipedia.org/wiki/Regex_(named_groups)).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://en.wikipedia.org/wiki/Lisp_(programming_language)",
       "https://en.wikipedia.org/wiki/Bracket_(mathematics)",
-      "https://en.wikipedia.org/wiki/Regex_(named_groups)"
+      "https://en.wikipedia.org/wiki/Regex_(named_groups)",
     ]);
   });
 
@@ -183,11 +183,11 @@ Learn about [Named_groups (regex)](https://en.wikipedia.org/wiki/Regex_(named_gr
 See [Example file](https://github.com/user/repo/blob/main/docs/example(v1).md).
 Check [Test file](https://github.com/user/repo/blob/main/src/test_(special).js#L10-L20).
     `;
-    
+
     const urls = extractURLs(markdown);
     expect(urls).toEqual([
       "https://github.com/user/repo/blob/main/docs/example(v1).md",
-      "https://github.com/user/repo/blob/main/src/test_(special).js#L10-L20"
+      "https://github.com/user/repo/blob/main/src/test_(special).js#L10-L20",
     ]);
   });
 
@@ -197,12 +197,12 @@ Check [Test file](https://github.com/user/repo/blob/main/src/test_(special).js#L
 Check the [README](./README.md) or [Documentation](docs/guide.md).
 See the [Examples directory](examples/).
     `;
-    
+
     const relativeLinks = extractRelativeLinks(markdown);
     expect(relativeLinks).toEqual([
       "./README.md",
       "docs/guide.md",
-      "examples/"
+      "examples/",
     ]);
   });
 
@@ -212,12 +212,9 @@ See the [Examples directory](examples/).
 Check the [README](./README.md) or [Website](https://example.com).
 See the [Examples directory](examples/) or [GitHub](https://github.com).
     `;
-    
+
     const relativeLinks = extractRelativeLinks(markdown);
-    expect(relativeLinks).toEqual([
-      "./README.md",
-      "examples/"
-    ]);
+    expect(relativeLinks).toEqual(["./README.md", "examples/"]);
   });
 });
 
@@ -235,7 +232,9 @@ describe("fixParenthesesInUrl tests", () => {
   test("should fix GitHub URLs with unbalanced parentheses", () => {
     const url = "https://github.com/user/repo/blob/main/docs/example(v1.md";
     const fixed = fixParenthesesInUrl(url);
-    expect(fixed).toBe("https://github.com/user/repo/blob/main/docs/example(v1.md");
+    expect(fixed).toBe(
+      "https://github.com/user/repo/blob/main/docs/example(v1.md",
+    );
   });
 
   test("should fix Wikipedia URLs with unbalanced parentheses", () => {
@@ -248,10 +247,19 @@ describe("fixParenthesesInUrl tests", () => {
 describe("isLikelyAFilePath tests", () => {
   test("should identify files with common extensions", () => {
     const extensions = [
-      ".md", ".txt", ".js", ".ts", ".html", ".css", ".json", 
-      ".yml", ".yaml", ".svg", ".pdf"
+      ".md",
+      ".txt",
+      ".js",
+      ".ts",
+      ".html",
+      ".css",
+      ".json",
+      ".yml",
+      ".yaml",
+      ".svg",
+      ".pdf",
     ];
-    
+
     for (const ext of extensions) {
       expect(isLikelyAFilePath(`file${ext}`)).toBe(true);
       expect(isLikelyAFilePath(`path/to/file${ext}`)).toBe(true);
@@ -291,6 +299,8 @@ describe("isLikelyAFilePath tests", () => {
   });
 
   test("should reject strings with too many spaces", () => {
-    expect(isLikelyAFilePath("this is not a path with too many spaces")).toBe(false);
+    expect(isLikelyAFilePath("this is not a path with too many spaces")).toBe(
+      false,
+    );
   });
 });
