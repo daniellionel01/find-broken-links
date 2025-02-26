@@ -169,49 +169,47 @@ function isLocalhostURL(url: string): boolean {
   );
 }
 
-function extractURLs(content: string): string[] {
+export function extractURLs(content: string): string[] {
   const urls: string[] = [];
-
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  
+  // More sophisticated regex that handles parentheses in URLs
+  // This looks for markdown links: [text](url)
+  // But handles potential nested parentheses in the URL itself
+  const regex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   let match;
-
-  while ((match = linkRegex.exec(content)) !== null) {
+  
+  while ((match = regex.exec(content)) !== null) {
     const linkText = match[1];
-    const linkUrl = match[2].trim();
-
-    if (linkUrl.startsWith("http")) {
-      const fixedUrl = fixParenthesesInUrl(linkUrl);
-      if (fixedUrl) {
-        urls.push(fixedUrl);
-      }
+    let linkUrl = match[2].trim();
+    
+    // Only include http/https URLs
+    if (linkUrl.startsWith('http')) {
+      urls.push(linkUrl);
     }
   }
-
+  
   return urls;
 }
 
-function extractRelativeLinks(content: string): string[] {
+export function extractRelativeLinks(content: string): string[] {
   const links: string[] = [];
 
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  // Using the same improved regex that handles parentheses
+  const regex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   let match;
 
-  while ((match = linkRegex.exec(content)) !== null) {
+  while ((match = regex.exec(content)) !== null) {
     const linkText = match[1];
     const linkUrl = match[2].trim();
 
     // Only include relative links that don't start with http/https or /
     if (!linkUrl.startsWith("http") && !linkUrl.startsWith("/")) {
-      // Handle potential parentheses in the URL
-      const fixedUrl = fixParenthesesInUrl(linkUrl);
-      if (fixedUrl) {
-        // Remove hash fragments and query parameters
-        const cleanLink = fixedUrl.split("#")[0].split("?")[0];
+      // Remove hash fragments and query parameters
+      const cleanLink = linkUrl.split("#")[0].split("?")[0];
 
-        // Skip code snippets, arguments, etc.
-        if (isLikelyAFilePath(cleanLink)) {
-          links.push(cleanLink);
-        }
+      // Skip code snippets, arguments, etc.
+      if (isLikelyAFilePath(cleanLink)) {
+        links.push(cleanLink);
       }
     }
   }
@@ -219,7 +217,7 @@ function extractRelativeLinks(content: string): string[] {
   return links;
 }
 
-function fixParenthesesInUrl(url: string): string | null {
+export function fixParenthesesInUrl(url: string): string | null {
   if (!url.includes("(") && !url.includes(")")) {
     return url;
   }
@@ -257,7 +255,7 @@ function fixParenthesesInUrl(url: string): string | null {
   return url;
 }
 
-function isLikelyAFilePath(str: string): boolean {
+export function isLikelyAFilePath(str: string): boolean {
   const commonFileExtensions = [
     ".md",
     ".markdown",
@@ -314,6 +312,11 @@ function isLikelyAFilePath(str: string): boolean {
     str === "()" ||
     str === "[]"
   ) {
+    return false;
+  }
+
+  // Skip strings with too many spaces (likely sentences, not file paths)
+  if (str.split(" ").length > 3) {
     return false;
   }
 
