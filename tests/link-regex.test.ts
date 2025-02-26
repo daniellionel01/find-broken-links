@@ -9,6 +9,50 @@ import {
 } from "../index.ts";
 
 describe("Link extraction tests", () => {
+  test("should extract links enclosed in angle brackets", () => {
+    const markdown = `
+# Angle bracket links
+See <https://en.wikipedia.org/wiki/Pointer_(computer_programming)> for pointers info.
+Check <https://example.com> for reference.
+    `;
+
+    const urls = extractURLs(markdown);
+    expect(urls).toEqual([
+      "https://en.wikipedia.org/wiki/Pointer_(computer_programming)",
+      "https://example.com",
+    ]);
+  });
+  
+  test("should extract raw URLs in text", () => {
+    const markdown = `
+# Raw URLs
+Visit https://github.com/oven-sh/bun/assets/709451/94746adc-8aba-4baf-a143-3c355f8e0f78 to see the image.
+Check out the VS Code extension at https://marketplace.visualstudio.com/items?itemName=oven.bun-vscode.
+    `;
+
+    const urls = extractURLs(markdown);
+    expect(urls).toEqual([
+      "https://github.com/oven-sh/bun/assets/709451/94746adc-8aba-4baf-a143-3c355f8e0f78",
+      "https://marketplace.visualstudio.com/items?itemName=oven.bun-vscode",
+    ]);
+  });
+  
+  test("should handle mixed link formats in the same document", () => {
+    const markdown = `
+# Mixed link formats
+- [Markdown link](https://example.com/markdown)
+- <https://example.com/angle-brackets>
+- Raw URL: https://example.com/raw-url
+    `;
+
+    const urls = extractURLs(markdown);
+    expect(urls).toEqual([
+      "https://example.com/markdown",
+      "https://example.com/angle-brackets",
+      "https://example.com/raw-url",
+    ]);
+  });
+
   test("should extract links with closing parentheses in the URL", () => {
     const markdown = `
 # Tricky links
@@ -302,5 +346,11 @@ describe("isLikelyAFilePath tests", () => {
     expect(isLikelyAFilePath("this is not a path with too many spaces")).toBe(
       false,
     );
+  });
+  
+  test("should reject simple module references", () => {
+    expect(isLikelyAFilePath("./uint8array")).toBe(false);
+    expect(isLikelyAFilePath("./stream")).toBe(false);
+    expect(isLikelyAFilePath("./buffer")).toBe(false);
   });
 });

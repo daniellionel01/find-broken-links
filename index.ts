@@ -172,13 +172,16 @@ function isLocalhostURL(url: string): boolean {
 export function extractURLs(content: string): string[] {
   const urls: string[] = [];
   
-  // More sophisticated regex that handles parentheses in URLs
-  // This looks for markdown links: [text](url)
-  // But handles potential nested parentheses in the URL itself
-  const regex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+  // Match different types of links
+  const markdownLinkRegex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+  const angleBracketLinkRegex = /<(https?:\/\/[^>]+)>/g;
+  // Raw URL regex - match URLs not already in markdown format or angle brackets
+  const rawUrlRegex = /(?<![[(])(?<!\]\()(?<!<)(https?:\/\/[^\s)"']+)/g;
+  
   let match;
   
-  while ((match = regex.exec(content)) !== null) {
+  // Extract markdown style links
+  while ((match = markdownLinkRegex.exec(content)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
     
@@ -188,17 +191,34 @@ export function extractURLs(content: string): string[] {
     }
   }
   
-  return urls;
+  // Extract angle bracket links
+  while ((match = angleBracketLinkRegex.exec(content)) !== null) {
+    const linkUrl = match[1].trim();
+    urls.push(linkUrl);
+  }
+  
+  // Extract raw URLs
+  while ((match = rawUrlRegex.exec(content)) !== null) {
+    let linkUrl = match[0].trim();
+    
+    // Clean up trailing punctuation that might be part of the text, not the URL
+    linkUrl = linkUrl.replace(/[.,;:!?)]+$/, '');
+    
+    urls.push(linkUrl);
+  }
+  
+  // Remove duplicates
+  return [...new Set(urls)];
 }
 
 export function extractRelativeLinks(content: string): string[] {
   const links: string[] = [];
 
-  // Using the same improved regex that handles parentheses
-  const regex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+  // Using the same regex for markdown links
+  const markdownLinkRegex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   let match;
 
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = markdownLinkRegex.exec(content)) !== null) {
     const linkText = match[1];
     const linkUrl = match[2].trim();
 
@@ -256,6 +276,11 @@ export function fixParenthesesInUrl(url: string): string | null {
 }
 
 export function isLikelyAFilePath(str: string): boolean {
+  // Skip relative paths that look like module references (e.g. "./uint8array")
+  if (str.startsWith('./') && !str.includes('/', 2) && !str.includes('.', 2)) {
+    return false;
+  }
+
   const commonFileExtensions = [
     ".md",
     ".markdown",
@@ -327,7 +352,40 @@ export function isLikelyAFilePath(str: string): boolean {
 async function checkURL(
   url: string,
 ): Promise<Response & { brokenGitHubLink?: boolean }> {
-  // First, check if this is a GitHub link
+  // Special cases that should be considered valid despite returning errors
+  const specialCases = [
+    // GitHub assets links often return 403 but work in browsers
+    { pattern: /github\.com\/.*\/assets\//, forceValid: true },
+    // VS Code marketplace links
+    { pattern: /marketplace\.visualstudio\.com/, forceValid: true },
+  ];
+  
+  // Check if URL matches any special case patterns
+  for (const specialCase of specialCases) {
+    if (specialCase.pattern.test(url) && specialCase.forceValid) {
+      // Return a synthetic "ok" response for these special cases
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK (special case)",
+        // Add minimal methods needed to satisfy Response interface
+        text: async () => "",
+        json: async () => ({}),
+        arrayBuffer: async () => new ArrayBuffer(0),
+        blob: async () => new Blob(),
+        formData: async () => new FormData(),
+        clone: () => ({ ok: true, status: 200 }) as any,
+        body: null,
+        bodyUsed: false,
+        headers: new Headers(),
+        redirected: false,
+        type: "basic",
+        url: url
+      } as Response;
+    }
+  }
+
+  // First, check if this is a GitHub link (repos, blobs, trees)
   const isGitHubLink =
     url.includes("github.com") &&
     (url.includes("/blob/") || url.includes("/tree/"));
@@ -367,6 +425,23 @@ async function checkURL(
       method: "HEAD",
       redirect: "follow",
     });
+    
+    // Consider 403 Forbidden responses as potentially valid links
+    // Some servers block HEAD requests but the links are actually valid
+    if (response.status === 403) {
+      // Retry with GET
+      try {
+        const getResponse = await fetch(url, {
+          method: "GET",
+          redirect: "follow",
+        });
+        return getResponse;
+      } catch (error) {
+        // If GET also fails, return the original 403 response
+        return response;
+      }
+    }
+    
     return response;
   } catch (error) {
     // Retry with GET if HEAD is not supported
