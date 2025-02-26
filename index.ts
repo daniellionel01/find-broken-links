@@ -172,6 +172,9 @@ function isLocalhostURL(url: string): boolean {
 export function extractURLs(content: string): string[] {
   const urls: string[] = [];
   
+  // Skip code blocks
+  const contentWithoutCodeBlocks = content.replace(/```[\s\S]*?```/g, '');
+  
   // Match different types of links
   const markdownLinkRegex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   const angleBracketLinkRegex = /<(https?:\/\/[^>]+)>/g;
@@ -181,7 +184,7 @@ export function extractURLs(content: string): string[] {
   let match;
   
   // Extract markdown style links
-  while ((match = markdownLinkRegex.exec(content)) !== null) {
+  while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
     
@@ -192,13 +195,13 @@ export function extractURLs(content: string): string[] {
   }
   
   // Extract angle bracket links
-  while ((match = angleBracketLinkRegex.exec(content)) !== null) {
+  while ((match = angleBracketLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkUrl = match[1].trim();
     urls.push(linkUrl);
   }
   
   // Extract raw URLs
-  while ((match = rawUrlRegex.exec(content)) !== null) {
+  while ((match = rawUrlRegex.exec(contentWithoutCodeBlocks)) !== null) {
     let linkUrl = match[0].trim();
     
     // Clean up trailing punctuation that might be part of the text, not the URL
