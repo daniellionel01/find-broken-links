@@ -188,6 +188,9 @@ export function extractURLs(content: string): string[] {
   while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
+    
+    // Remove backticks that might be included in the URL
+    linkUrl = linkUrl.replace(/`/g, "");
 
     // Only include http/https URLs with valid domain part
     if (linkUrl.startsWith("http") && isValidUrl(linkUrl)) {
@@ -207,6 +210,9 @@ export function extractURLs(content: string): string[] {
   ) {
     let linkUrl = match[1].trim();
     
+    // Remove backticks that might be included in the URL
+    linkUrl = linkUrl.replace(/`/g, "");
+    
     // Only include valid URLs
     if (isValidUrl(linkUrl)) {
       // Fix URLs with unbalanced parentheses
@@ -225,6 +231,9 @@ export function extractURLs(content: string): string[] {
 
     // Clean up trailing punctuation that might be part of the text, not the URL
     linkUrl = linkUrl.replace(/[.,;:!?)]+$/, "");
+    
+    // Remove backticks that might be included in the URL
+    linkUrl = linkUrl.replace(/`/g, "");
     
     // Only include valid URLs
     if (isValidUrl(linkUrl)) {
@@ -464,9 +473,9 @@ async function checkURL(
       redirect: "follow",
     });
 
-    // Consider 403 Forbidden responses as potentially valid links
-    // Some servers block HEAD requests but the links are actually valid
-    if (response.status === 403) {
+    // Consider 403 Forbidden or 500 Server Error responses as potentially valid links
+    // Some servers block HEAD requests or have server-side issues with HEAD but the links are actually valid
+    if (response.status === 403 || response.status === 500) {
       // Retry with GET
       try {
         const getResponse = await fetch(url, {
@@ -475,7 +484,7 @@ async function checkURL(
         });
         return getResponse;
       } catch (error) {
-        // If GET also fails, return the original 403 response
+        // If GET also fails, return the original response
         return response;
       }
     }
