@@ -178,9 +178,14 @@ export function extractURLs(content: string): string[] {
   // Match different types of links
   const markdownLinkRegex =
     /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+    
+  // Improved angle bracket link regex that better captures URLs with parentheses
+  // Using a more robust approach for angle bracket links
   const angleBracketLinkRegex = /<(https?:\/\/[^>]+)>/g;
+  
   // Raw URL regex - match URLs not already in markdown format or angle brackets
-  const rawUrlRegex = /(?<![[(])(?<!\]\()(?<!<)(https?:\/\/[^\s)"']+)/g;
+  // Updated to avoid matching URLs that are part of angle bracket syntax
+  const rawUrlRegex = /(?<![[(])(?<!\]\()(?<!<)(https?:\/\/[^\s)"'<>]+)/g;
 
   let match;
 
@@ -188,6 +193,11 @@ export function extractURLs(content: string): string[] {
   while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
+
+    // Handle markdown links that point to URLs in angle brackets
+    if (linkUrl.startsWith("<") && linkUrl.endsWith(">")) {
+      linkUrl = linkUrl.substring(1, linkUrl.length - 1);
+    }
 
     // Remove backticks that might be included in the URL
     linkUrl = linkUrl.replace(/`/g, "");
@@ -254,14 +264,43 @@ export function extractURLs(content: string): string[] {
 export function extractRelativeLinks(content: string): string[] {
   const links: string[] = [];
 
+  // Skip code blocks
+  const contentWithoutCodeBlocks = content.replace(/```[\s\S]*?```/g, "");
+
   // Using the same regex for markdown links
   const markdownLinkRegex =
     /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+    
+  // Angle bracket relative links
+  const angleBracketLinkRegex = /<([^>:]+\.[a-zA-Z0-9]+)>/g;
+  
   let match;
 
-  while ((match = markdownLinkRegex.exec(content)) !== null) {
+  // Extract markdown style relative links
+  while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
-    const linkUrl = match[2].trim();
+    let linkUrl = match[2].trim();
+
+    // Handle markdown links that point to paths in angle brackets
+    if (linkUrl.startsWith("<") && linkUrl.endsWith(">")) {
+      linkUrl = linkUrl.substring(1, linkUrl.length - 1);
+    }
+
+    // Only include relative links that don't start with http/https or /
+    if (!linkUrl.startsWith("http") && !linkUrl.startsWith("/")) {
+      // Remove hash fragments and query parameters
+      const cleanLink = linkUrl.split("#")[0].split("?")[0];
+
+      // Skip code snippets, arguments, etc.
+      if (isLikelyAFilePath(cleanLink)) {
+        links.push(cleanLink);
+      }
+    }
+  }
+
+  // Extract angle bracket relative links
+  while ((match = angleBracketLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
+    const linkUrl = match[1].trim();
 
     // Only include relative links that don't start with http/https or /
     if (!linkUrl.startsWith("http") && !linkUrl.startsWith("/")) {
