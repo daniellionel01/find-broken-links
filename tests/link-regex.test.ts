@@ -1,18 +1,18 @@
 import { test, expect, describe } from "bun:test";
 
-// Import functions from the main file, making them testable
 import {
   extractURLs,
   extractRelativeLinks,
   fixParenthesesInUrl,
   isLikelyAFilePath,
+  isValidUrl,
 } from "../index.ts";
 
 describe("Link extraction tests", () => {
   test("should extract links enclosed in angle brackets", () => {
     const markdown = `
 # Angle bracket links
-See <https://en.wikipedia.org/wiki/Pointer_(computer_programming)> for pointers info.
+Bun represents [pointers](<https://en.wikipedia.org/wiki/Pointer_(computer_programming)>) as a 'number' in JavaScript.
 Check <https://example.com> for reference.
     `;
 
@@ -23,6 +23,20 @@ Check <https://example.com> for reference.
     ]);
   });
   
+  test("should handle standalone URLs in angle brackets with parentheses", () => {
+    const markdown = `
+# Standalone angle bracket URLs with parentheses
+<https://en.wikipedia.org/wiki/Pointer_(computer_programming)>
+<https://en.wikipedia.org/wiki/Bracket_(mathematics)>
+    `;
+
+    const urls = extractURLs(markdown);
+    expect(urls).toEqual([
+      "https://en.wikipedia.org/wiki/Pointer_(computer_programming)",
+      "https://en.wikipedia.org/wiki/Bracket_(mathematics)",
+    ]);
+  });
+
   test("should extract raw URLs in text", () => {
     const markdown = `
 # Raw URLs
@@ -36,7 +50,7 @@ Check out the VS Code extension at https://marketplace.visualstudio.com/items?it
       "https://marketplace.visualstudio.com/items?itemName=oven.bun-vscode",
     ]);
   });
-  
+
   test("should handle mixed link formats in the same document", () => {
     const markdown = `
 # Mixed link formats
@@ -347,10 +361,26 @@ describe("isLikelyAFilePath tests", () => {
       false,
     );
   });
-  
+
   test("should reject simple module references", () => {
     expect(isLikelyAFilePath("./uint8array")).toBe(false);
     expect(isLikelyAFilePath("./stream")).toBe(false);
     expect(isLikelyAFilePath("./buffer")).toBe(false);
+  });
+});
+
+describe("isValidUrl tests", () => {
+  test("should validate URLs with proper domain parts", () => {
+    expect(isValidUrl("https://example.com")).toBe(true);
+    expect(isValidUrl("http://subdomain.example.com/path")).toBe(true);
+    expect(isValidUrl("https://github.com/user/repo")).toBe(true);
+    expect(isValidUrl("http://example.com:8080/path")).toBe(true);
+  });
+
+  test("should reject invalid or incomplete URLs", () => {
+    expect(isValidUrl("http://")).toBe(false);
+    expect(isValidUrl("https://")).toBe(false);
+    expect(isValidUrl("http:/example.com")).toBe(false); // Missing slash
+    expect(isValidUrl("example.com")).toBe(false); // Missing protocol
   });
 });

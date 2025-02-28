@@ -12,7 +12,7 @@ type LinkCheckResult = {
 };
 
 const FILE_EXTENSIONS = [".md", ".markdown"];
-const CONCURRENCY_LIMIT = 10;
+const CONCURRENCY_LIMIT = 20;
 const LINK_BATCH_SIZE = 5;
 
 if (import.meta.main) {
@@ -171,45 +171,73 @@ function isLocalhostURL(url: string): boolean {
 
 export function extractURLs(content: string): string[] {
   const urls: string[] = [];
-  
+
   // Skip code blocks
-  const contentWithoutCodeBlocks = content.replace(/```[\s\S]*?```/g, '');
-  
+  const contentWithoutCodeBlocks = content.replace(/```[\s\S]*?```/g, "");
+
   // Match different types of links
-  const markdownLinkRegex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+  const markdownLinkRegex =
+    /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   const angleBracketLinkRegex = /<(https?:\/\/[^>]+)>/g;
   // Raw URL regex - match URLs not already in markdown format or angle brackets
   const rawUrlRegex = /(?<![[(])(?<!\]\()(?<!<)(https?:\/\/[^\s)"']+)/g;
-  
+
   let match;
-  
+
   // Extract markdown style links
   while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
-    
-    // Only include http/https URLs
-    if (linkUrl.startsWith('http')) {
+
+    // Only include http/https URLs with valid domain part
+    if (linkUrl.startsWith("http") && isValidUrl(linkUrl)) {
+      // Fix URLs with unbalanced parentheses
+      const fixedUrl = fixParenthesesInUrl(linkUrl);
+      if (fixedUrl) {
+        linkUrl = fixedUrl;
+      }
+      
       urls.push(linkUrl);
     }
   }
-  
+
   // Extract angle bracket links
-  while ((match = angleBracketLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
-    const linkUrl = match[1].trim();
-    urls.push(linkUrl);
+  while (
+    (match = angleBracketLinkRegex.exec(contentWithoutCodeBlocks)) !== null
+  ) {
+    let linkUrl = match[1].trim();
+    
+    // Only include valid URLs
+    if (isValidUrl(linkUrl)) {
+      // Fix URLs with unbalanced parentheses
+      const fixedUrl = fixParenthesesInUrl(linkUrl);
+      if (fixedUrl) {
+        linkUrl = fixedUrl;
+      }
+      
+      urls.push(linkUrl);
+    }
   }
-  
+
   // Extract raw URLs
   while ((match = rawUrlRegex.exec(contentWithoutCodeBlocks)) !== null) {
     let linkUrl = match[0].trim();
-    
+
     // Clean up trailing punctuation that might be part of the text, not the URL
-    linkUrl = linkUrl.replace(/[.,;:!?)]+$/, '');
+    linkUrl = linkUrl.replace(/[.,;:!?)]+$/, "");
     
-    urls.push(linkUrl);
+    // Only include valid URLs
+    if (isValidUrl(linkUrl)) {
+      // Fix URLs with unbalanced parentheses
+      const fixedUrl = fixParenthesesInUrl(linkUrl);
+      if (fixedUrl) {
+        linkUrl = fixedUrl;
+      }
+
+      urls.push(linkUrl);
+    }
   }
-  
+
   // Remove duplicates
   return [...new Set(urls)];
 }
@@ -218,7 +246,8 @@ export function extractRelativeLinks(content: string): string[] {
   const links: string[] = [];
 
   // Using the same regex for markdown links
-  const markdownLinkRegex = /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
+  const markdownLinkRegex =
+    /\[([^\]]+)\]\(((?:\([^)]*\)|[^()])*(?:\([^)]*\)|[^()])+)\)/g;
   let match;
 
   while ((match = markdownLinkRegex.exec(content)) !== null) {
@@ -278,9 +307,15 @@ export function fixParenthesesInUrl(url: string): string | null {
   return url;
 }
 
+// Checks if a URL contains at least a valid protocol and domain part
+export function isValidUrl(url: string): boolean {
+  // Check for protocol + domain pattern, should match e.g. "http://example.com" but not "http://" or "https://"
+  return /^https?:\/\/([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/.test(url);
+}
+
 export function isLikelyAFilePath(str: string): boolean {
   // Skip relative paths that look like module references (e.g. "./uint8array")
-  if (str.startsWith('./') && !str.includes('/', 2) && !str.includes('.', 2)) {
+  if (str.startsWith("./") && !str.includes("/", 2) && !str.includes(".", 2)) {
     return false;
   }
 
@@ -362,7 +397,7 @@ async function checkURL(
     // VS Code marketplace links
     { pattern: /marketplace\.visualstudio\.com/, forceValid: true },
   ];
-  
+
   // Check if URL matches any special case patterns
   for (const specialCase of specialCases) {
     if (specialCase.pattern.test(url) && specialCase.forceValid) {
@@ -383,7 +418,7 @@ async function checkURL(
         headers: new Headers(),
         redirected: false,
         type: "basic",
-        url: url
+        url: url,
       } as Response;
     }
   }
@@ -428,7 +463,7 @@ async function checkURL(
       method: "HEAD",
       redirect: "follow",
     });
-    
+
     // Consider 403 Forbidden responses as potentially valid links
     // Some servers block HEAD requests but the links are actually valid
     if (response.status === 403) {
@@ -444,7 +479,7 @@ async function checkURL(
         return response;
       }
     }
-    
+
     return response;
   } catch (error) {
     // Retry with GET if HEAD is not supported
