@@ -188,7 +188,7 @@ export function extractURLs(content: string): string[] {
   while ((match = markdownLinkRegex.exec(contentWithoutCodeBlocks)) !== null) {
     const linkText = match[1];
     let linkUrl = match[2].trim();
-    
+
     // Remove backticks that might be included in the URL
     linkUrl = linkUrl.replace(/`/g, "");
 
@@ -199,7 +199,7 @@ export function extractURLs(content: string): string[] {
       if (fixedUrl) {
         linkUrl = fixedUrl;
       }
-      
+
       urls.push(linkUrl);
     }
   }
@@ -209,10 +209,10 @@ export function extractURLs(content: string): string[] {
     (match = angleBracketLinkRegex.exec(contentWithoutCodeBlocks)) !== null
   ) {
     let linkUrl = match[1].trim();
-    
+
     // Remove backticks that might be included in the URL
     linkUrl = linkUrl.replace(/`/g, "");
-    
+
     // Only include valid URLs
     if (isValidUrl(linkUrl)) {
       // Fix URLs with unbalanced parentheses
@@ -220,7 +220,7 @@ export function extractURLs(content: string): string[] {
       if (fixedUrl) {
         linkUrl = fixedUrl;
       }
-      
+
       urls.push(linkUrl);
     }
   }
@@ -231,10 +231,10 @@ export function extractURLs(content: string): string[] {
 
     // Clean up trailing punctuation that might be part of the text, not the URL
     linkUrl = linkUrl.replace(/[.,;:!?)]+$/, "");
-    
+
     // Remove backticks that might be included in the URL
     linkUrl = linkUrl.replace(/`/g, "");
-    
+
     // Only include valid URLs
     if (isValidUrl(linkUrl)) {
       // Fix URLs with unbalanced parentheses
@@ -319,7 +319,9 @@ export function fixParenthesesInUrl(url: string): string | null {
 // Checks if a URL contains at least a valid protocol and domain part
 export function isValidUrl(url: string): boolean {
   // Check for protocol + domain pattern, should match e.g. "http://example.com" but not "http://" or "https://"
-  return /^https?:\/\/([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/.test(url);
+  return /^https?:\/\/([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/.test(
+    url,
+  );
 }
 
 export function isLikelyAFilePath(str: string): boolean {
@@ -399,39 +401,6 @@ export function isLikelyAFilePath(str: string): boolean {
 async function checkURL(
   url: string,
 ): Promise<Response & { brokenGitHubLink?: boolean }> {
-  // Special cases that should be considered valid despite returning errors
-  const specialCases = [
-    // GitHub assets links often return 403 but work in browsers
-    { pattern: /github\.com\/.*\/assets\//, forceValid: true },
-    // VS Code marketplace links
-    { pattern: /marketplace\.visualstudio\.com/, forceValid: true },
-  ];
-
-  // Check if URL matches any special case patterns
-  for (const specialCase of specialCases) {
-    if (specialCase.pattern.test(url) && specialCase.forceValid) {
-      // Return a synthetic "ok" response for these special cases
-      return {
-        ok: true,
-        status: 200,
-        statusText: "OK (special case)",
-        // Add minimal methods needed to satisfy Response interface
-        text: async () => "",
-        json: async () => ({}),
-        arrayBuffer: async () => new ArrayBuffer(0),
-        blob: async () => new Blob(),
-        formData: async () => new FormData(),
-        clone: () => ({ ok: true, status: 200 }) as any,
-        body: null,
-        bodyUsed: false,
-        headers: new Headers(),
-        redirected: false,
-        type: "basic",
-        url: url,
-      } as Response;
-    }
-  }
-
   // First, check if this is a GitHub link (repos, blobs, trees)
   const isGitHubLink =
     url.includes("github.com") &&
